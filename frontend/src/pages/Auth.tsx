@@ -1,0 +1,271 @@
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "sonner";
+import { Briefcase, GraduationCap, LogIn } from "lucide-react";
+import { FcGoogle } from "react-icons/fc";
+
+const Auth = () => {
+  const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [selectedRole, setSelectedRole] = useState<"student" | "recruiter">("student");
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+            role: selectedRole,
+          },
+          emailRedirectTo: `${window.location.origin}/`,
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        // Sync profile to backend MongoDB
+        try {
+          await api.post('/users', {
+            externalId: data.user.id,
+            name: fullName,
+            email,
+            role: selectedRole === 'recruiter' ? 'recruiter' : 'student',
+          });
+        } catch (err) {
+          console.error('Failed to sync profile to backend', err);
+        }
+
+        toast.success("Account created successfully!");
+        navigate(selectedRole === "student" ? "/student/dashboard" : "/recruiter/dashboard");
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to create account");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        // Fetch user profile to determine role
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", data.user.id)
+          .single();
+
+        toast.success("Welcome back!");
+        navigate(profile?.role === "student" ? "/student/dashboard" : "/recruiter/dashboard");
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to sign in");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleOAuthSignIn = async (provider: 'google') => {
+    try {
+      setIsLoading(true);
+      await supabase.auth.signInWithOAuth({ provider, options: { redirectTo: `${window.location.origin}/auth` } });
+      // The page will redirect to the provider and back; after redirect the effect below will handle session.
+    } catch (err:any) {
+      toast.error(err?.message || 'Failed to start OAuth flow');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // After OAuth redirect, Supabase will set the session. Ensure we sync the user to backend and navigate.
+  // This runs on mount to pick up an existing session (e.g., after OAuth redirect).
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const user = session.user;
+          const name = (user.user_metadata as any)?.full_name || (user.user_metadata as any)?.name || user.email || 'Student';
+          // Exchange Supabase access token for a backend JWT and upsert user server-side
+          try {
+            const accessToken = (session as any).access_token || (session as any).provider_token || null;
+            if (accessToken) {
+              const resp = await fetch((import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api/auth/supabase', { headers: { Authorization: `Bearer ${accessToken}` }, method: 'POST' });
+              if (resp.ok) {
+                const data = await resp.json();
+                if (data.token) localStorage.setItem('backend_token', data.token);
+              } else {
+                console.warn('Backend supabase exchange failed', await resp.text());
+              }
+            }
+          } catch (err) {
+            console.warn('Failed to exchange supabase token with backend', err);
+          }
+          // Navigate to dashboard; default to student for OAuth users (can add role selection later)
+          navigate('/student/dashboard');
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-white to-cyan-50 p-4">
+      <Card className="w-full max-w-md shadow-2xl">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-3xl font-bold text-center bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+            Welcome to JOBNEST
+          </CardTitle>
+          <CardDescription className="text-center">
+            Connect students with amazing opportunities
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue="signin" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="signin">Sign In</TabsTrigger>
+              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="signin">
+              <form onSubmit={handleSignIn} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="signin-email">Email</Label>
+                  <Input
+                    id="signin-email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signin-password">Password</Label>
+                  <Input
+                    id="signin-password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? "Signing in..." : "Sign In"}
+                </Button>
+
+                <div className="pt-2">
+                  <Button type="button" variant="outline" className="w-full flex items-center justify-center gap-2" onClick={() => handleOAuthSignIn('google')}>
+                    <LogIn className="h-5 w-5" /> Continue with Google
+                  </Button>
+                </div>
+              </form>
+            </TabsContent>
+
+            <TabsContent value="signup">
+              <form onSubmit={handleSignUp} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="fullname">Full Name</Label>
+                  <Input
+                    id="fullname"
+                    type="text"
+                    placeholder="John Doe"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-email">Email</Label>
+                  <Input
+                    id="signup-email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-password">Password</Label>
+                  <Input
+                    id="signup-password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={6}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>I am a</Label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Button
+                      type="button"
+                      variant={selectedRole === "student" ? "default" : "outline"}
+                      className="w-full"
+                      onClick={() => setSelectedRole("student")}
+                    >
+                      <GraduationCap className="mr-2 h-4 w-4" />
+                      Student
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={selectedRole === "recruiter" ? "default" : "outline"}
+                      className="w-full"
+                      onClick={() => setSelectedRole("recruiter")}
+                    >
+                      <Briefcase className="mr-2 h-4 w-4" />
+                      Recruiter
+                    </Button>
+                  </div>
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? "Creating account..." : "Create Account"}
+                </Button>
+
+                <div className="pt-2">
+                  <Button type="button" variant="outline" className="w-full flex items-center justify-center gap-2" onClick={() => handleOAuthSignIn('google')}>
+                    <FcGoogle className="h-5 w-5" /> Continue with Google
+                  </Button>
+                </div>
+              </form>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+export default Auth;
