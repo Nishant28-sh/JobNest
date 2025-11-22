@@ -11,6 +11,7 @@ const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 function isValidHttpUrl(value: unknown) {
   return typeof value === 'string' && /^(https?:)\/\//i.test(value);
 }
+export let supabase: any;
 
 if (!isValidHttpUrl(SUPABASE_URL) || !SUPABASE_PUBLISHABLE_KEY) {
   // Provide a helpful console error instead of letting the Supabase SDK throw
@@ -28,7 +29,7 @@ if (!isValidHttpUrl(SUPABASE_URL) || !SUPABASE_PUBLISHABLE_KEY) {
   };
 
   // `any` is used here to avoid complex typing for the stub.
-  export const supabase: any = {
+  supabase = {
     auth: {
       getSession: makeThrow('auth.getSession'),
       signOut: makeThrow('auth.signOut'),
@@ -42,7 +43,7 @@ if (!isValidHttpUrl(SUPABASE_URL) || !SUPABASE_PUBLISHABLE_KEY) {
     rpc: makeThrow('rpc') as any,
   };
 } else {
-  export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     auth: {
       storage: localStorage,
       persistSession: true,
