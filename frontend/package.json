@@ -1,7 +1,12 @@
 {
   "name": "vite_react_shadcn_ts",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
+
+  "rollup": {
+    "useWasm": true
+  },
+
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,9 +14,6 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview"
-  },
-  "rollup": {
-    "useWasm": true
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
